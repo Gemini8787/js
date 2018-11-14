@@ -1,190 +1,180 @@
-"use strict";
+'use strict';
 
-const app = document.querySelector(".app");
-const menu = document.querySelector(".menu");
-const drag = document.querySelector(".drag");
-const burger = document.querySelector(".burger");
-const newLoad = document.querySelector(".new");
-const comments = document.querySelector(".comments");
-const commentsTools = document.querySelector(".comments-tools");
-const commentsBtn = document.querySelector(".menu__toggle-bg");
-const commentsOn = document.getElementById("comments-on");
-const draw = document.querySelector(".draw");
-const drawTools = document.querySelector(".draw-tools");
-const share = document.querySelector(".share");
-const shareTools = document.querySelector(".share-tools");
-const image = document.querySelector(".current-image");
-const commentsForm = document.querySelector(".comments__form");
-const imageLoader = document.querySelector(".image-loader");
-let response, connection, id;
+const mainInterface = document.querySelector('.menu');
+const menuItem = mainInterface.querySelectorAll('.menu__item');
+const image = document.querySelector('.current-image');
+const app = document.querySelector('.app');
+const loader = document.querySelector('.image-loader');
+const errorImage = document.querySelector('.error');
+const errorImageText = errorImage.querySelector('.error__message');
+const mode = document.querySelectorAll('.menu__item.mode');
+const commentWrap = document.querySelector('.comments-box');
+let socket;
+let commentForms;
+document.querySelector('.menu__item.burger').addEventListener('click', event => {
+    menuItem.forEach(item => item.dataset.state = '');
+    mainInterface.dataset.state = 'default';
+});
 
-burger.style.display = "none";
-comments.style.display = "none";
-draw.style.display = "none";
-share.style.display = "none";
-image.style.display = "none";
+document.querySelector('.menu_copy').addEventListener('click', event => {
+    document.querySelector('.menu__url').select();
+    document.execCommand('copy');
+});
 
-app.removeChild(document.querySelector(".comments__form"));
+mode.forEach(item => {
+    item.addEventListener('click', event => {
+        if (item.classList.contains('new')) return;
+        menuItem.forEach(el => el.dataset.state = '');
+        mainInterface.dataset.state = 'selected';
+        item.dataset.state = 'selected';
+    });
+});
 
-resetComment();
+document.querySelector('.menu__item.burger').addEventListener('click', () => {
 
-const imageWrap = document.createElement("div");
-let mask = document.createElement("canvas");
-let canvas = document.createElement("canvas");
+    if (document.querySelector('canvas')) {
+        removeElement(document.querySelector('canvas'));
+    }
 
-imageWrap.className = "image-wrap";
-mask.className = "mask";
-canvas.className = "canvas";
+    if (document.querySelector('.comments__form')) {
+        commentForms = document.querySelectorAll('.comments__form .comments__marker-checkbox');
+    }
+});
 
-app.appendChild(imageWrap);
-imageWrap.appendChild(image);
-imageWrap.appendChild(mask);
-imageWrap.appendChild(canvas);
+let checkImage = null;
 
-const commentForm = document.createElement("form");
-const commentMarker = document.createElement("span");
-const commentMarkerCheck = document.createElement("input");
-const commentBody = document.createElement("div");
-const comment = document.createElement("div");
-const commentLoader = document.createElement("div");
-const commentTime = document.createElement("p");
-const commentMessage = document.createElement("p");
-const loader = document.createElement("div");
-const loaderSquare = document.createElement("span");
-const commentInput = document.createElement("textarea");
-const commentClose = document.createElement("input");
-const commentSubmit = document.createElement("input");
+getDefaultInterface();
 
-commentForm.className = "comment__form";
-commentMarker.className = "comments__marker";
-commentMarkerCheck.className = "comments__marker-checkbox";
-commentMarkerCheck.type = "checkbox";
-commentMarkerCheck.checked = true;
-commentBody.className = "comments__body";
-comment.className = "comment";
-commentTime.className = "comment__time";
-commentMessage.className = "comment__message";
-commentLoader.className = "comment";
-commentLoader.classList.add("comment__loader");
-loader.className = "loader";
-commentInput.className = "comments__input";
-commentInput.placeholder = "Напишите ответ...";
-commentClose.className = "comments__close";
-commentClose.type = "button";
-commentClose.value = "Закрыть";
-commentSubmit.className = "comments__submit";
-commentSubmit.type = "submit";
-commentSubmit.value = "Отправить";
-
-app.appendChild(commentForm);
-commentForm.appendChild(commentMarker);
-commentForm.appendChild(commentMarkerCheck);
-commentForm.appendChild(commentBody);
-commentBody.appendChild(comment);
-comment.appendChild(commentTime);
-comment.appendChild(commentMessage);
-commentBody.appendChild(commentLoader);
-commentLoader.appendChild(loader);
-loader.appendChild(loaderSquare);
-loader.appendChild(loaderSquare.cloneNode());
-loader.appendChild(loaderSquare.cloneNode());
-loader.appendChild(loaderSquare.cloneNode());
-loader.appendChild(loaderSquare.cloneNode());
-commentBody.appendChild(commentInput);
-commentBody.appendChild(commentClose);
-commentBody.appendChild(commentSubmit);
-
-commentForm.style.display = "none";
-commentLoader.style.display = "none";
-
-function onFilesDrop(event) {
-	event.preventDefault();
-	if (image.style.display == "none") {
-		const imageTypeRegExp = /^image\/(jpeg|png)/;
-		const file = event.dataTransfer.files[0];
-		if (imageTypeRegExp.test(file.type)) {
-			document.querySelector(".error").style.display = "none";
-			sendFile(file);
-		} else {
-			document.querySelector(".error").style.display = "initial";
-		}	
-	} else {
-		document.querySelector(".error").style.display = "initial";
-		document.querySelector(".error__message").textContent 
-		= 'Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом "Загрузить новое" в меню';
-	}		
+function getDefaultInterface() {
+    mainInterface.dataset.state = 'initial';
+    image.src = '';
+    image.classList.add('visually-hidden');
+    hideElement(errorImage);
 }
 
-newLoad.addEventListener("click", (event) => {
-	document.querySelector(".error").style.display = "none";
-	const input = document.createElement("input");
-	input.type = "file";
-	input.accept = "image/jpeg, image/png";
-	input.click();
-	input.addEventListener("change", event => {
-		const file = event.currentTarget.files[0];
-		sendFile(file);
-	});
-});
+document.querySelector('#loadImage').addEventListener('change', getImageFromInput);
 
-app.addEventListener("drop", onFilesDrop);
-app.addEventListener("dragover", event => event.preventDefault());
-
-function resetComment() {
-	const comments = app.querySelectorAll("[data-top]");
-	for (const comment of comments) {
-    	app.removeChild(comment);
-	}	
+function getImageFromInput(event) {
+    const files = event.target.files[0];
+    updateFilesInfo(files);
 }
 
-function resetCanvas() {
-	const resetMask = mask;
-	const canvasContextReset = resetMask.getContext('2d');
-    canvasContextReset.clearRect(0, 0, resetMask.width, resetMask.height);
-	const resetImageDraw = canvas;
-	const canvasContextResetImg = resetImageDraw.getContext('2d');
-    canvasContextResetImg.clearRect(0, 0, resetImageDraw.width, resetImageDraw.height);
-};
-
-burger.addEventListener("click", () => {
-	burger.style.display = "none";
-	commentsTools.style.display = "none";
-	drawTools.style.display = "none";
-	shareTools.style.display = "none";
-	newLoad.style.display = "inline-block";
-	comments.style.display = "inline-block";
-	draw.style.display = "inline-block";
-	share.style.display = "inline-block";
+app.addEventListener('dragover', event => {
+    event.preventDefault();
+    checkImage = image.classList.contains('visually-hidden');
 });
 
-comments.addEventListener("click", () => {
-	newLoad.style.display = "none";
-	draw.style.display = "none";
-	share.style.display = "none";
-	canvas.style.zIndex = 50;
-	burger.style.display = "inline-block";
-	commentsTools.style.display = "inline-block";
-	mask.style.zIndex = 100;	
-});
+app.addEventListener('drop', onDrop);
 
-share.addEventListener("click", () => {
-	if (shareTools.style.display == "inline-block") {
-		share.style.display = "none";
-		shareTools.style.display = "none";
-		burger.style.display = "inline-block";
-		comments.style.display = "inline-block";
-		commentsTools.style.display = "inline-block";	
-	} else {
-		newLoad.style.display = "none";
-		comments.style.display = "none";
-		draw.style.display = "none";
-		burger.style.display = "inline-block";
-		shareTools.style.display = "inline-block";
-	}
-});
+function onDrop() {
+    event.preventDefault();
+    if (!checkImage) {
+        errorImageText.textContent = 'Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом «Загрузить новое» в меню';
+        showElement(errorImage);
+        return;
+    } else {
+        const files = event.dataTransfer.files[0];
+        updateFilesInfo(files);
+    }
+}
 
-document.querySelector(".menu_copy").addEventListener("click", () => {
-	const url = document.querySelector(".menu__url");
-	url.select();
-    document.execCommand("copy"); 
-});
+function checkFileType(file) {
+    switch (file.type) {
+        case 'image/jpeg':
+        case 'image/png':
+            return true;
+        default:
+            return false;
+    }
+}
+
+function updateFilesInfo(file) {
+    if (checkFileType(file)) {
+        hideElement(errorImage);
+        showElement(loader);
+    } else {
+        errorImageText.textContent = 'Неверный формат файла. Пожалуйста, выберите изображение в формате .jpg или .png.';
+        showElement(errorImage);
+    }
+
+    connectionImage(file);
+}
+
+function getFormData(file) {
+    const formData = new FormData();
+    formData.append('title', file.name);
+    formData.append('image', file);
+    return formData;
+}
+
+function connectionImage(file) {
+    fetch('https://neto-api.herokuapp.com/pic', {
+            body: getFormData(file),
+            credentials: 'same-origin',
+            method: 'POST'
+        })
+        .then(res => {
+            if (200 <= res.status && res.status < 300) {
+                return res;
+            }
+            throw new Error(response.statusText);
+        })
+        .then(res => res.json())
+        .then(res => {
+            console.log(res);
+            showImage(res, 'share');
+            if (socket) {
+                socket.close();
+            }
+            onSocket(res.id);
+        })
+        .catch(er => console.log(er));
+}
+
+if (window.location.search !== '') {
+    const id = window.location.search.substr(4);
+    connectionImageGet(id);
+}
+
+function connectionImageGet(id) {
+    fetch(`https://neto-api.herokuapp.com/pic/${id}`)
+        .then(res => res.json())
+        .then(res => {
+            showImage(res, 'comments');
+            onSocket(res.id);
+        });
+}
+
+function showImage(res, element) {
+
+    image.src = res.url;
+    image.dataset.id = res.id;
+    createUrl(image.dataset.id);
+    image.classList.remove('visually-hidden');
+    image.addEventListener('load', event => {
+        hideElement(loader);
+        showMenu(element);
+        commentWrap.style.width = `${image.width}px`;
+        commentWrap.style.height = `${image.height}px`;
+    });
+}
+
+function createUrl(id) {
+    const menuUrl = document.querySelector('.menu__url');
+    const locUrl = `${window.location.origin}${window.location.pathname}?id=${id}`;
+    menuUrl.value = locUrl;
+}
+
+function showMenu(elem) {
+    mainInterface.dataset.state = 'selected';
+    menuItem.forEach(item => item.dataset.state = '');
+    document.querySelector(`.menu__item.${elem}`).dataset.state = 'selected';
+}
+
+function showElement(el) {
+    el.style.display = '';
+}
+
+function hideElement(el) {
+    el.style.display = 'none';
+}
