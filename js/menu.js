@@ -1,4 +1,4 @@
-`use strict`;
+"use strict";
 
 let movedPiece = null;
 let minY, minX, maxX, maxY;
