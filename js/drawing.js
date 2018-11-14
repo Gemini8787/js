@@ -1,128 +1,144 @@
-"use strict";
+'use strict';
 
-draw.addEventListener("click", () => {
-	newLoad.style.display = "none";
-	comments.style.display = "none";
-	share.style.display = "none";
-	mask.style.zIndex = 50;
-	burger.style.display = "inline-block";
-	drawTools.style.display = "inline-block";
-	canvas.style.zIndex = 100;
+const draw = document.querySelector('.menu__item.draw');
+draw.addEventListener('click', showDrawing);
 
-	canvas.width = image.width;
-	canvas.height = image.height;
-		
-	const ctx = canvas.getContext("2d");
-	const brush = 4;
-	let color = "#6cbe47";
-	let curves = [];
-	let drawing = false;
-	let needsRepaint = false;
+function setCanvasSize(el) {
+    const img = document.querySelector('.current-image');
+    el.width = img.width;
+    el.height = img.height;
+}
 
-	document.querySelector(".red").addEventListener("click", () =>
-		color = "#ea5d56");
-	document.querySelector(".yellow").addEventListener("click", () =>
-		color = "#f3d135");
-	document.querySelector(".green").addEventListener("click", () =>
-		color = "#6cbe47");
-	document.querySelector(".blue").addEventListener("click", () =>
-		color = "#53a7f5");
-	document.querySelector(".purple").addEventListener("click", () =>
-		color = "#b36ade");
+function checkColor() {
+    const colors = document.querySelectorAll('.menu__color[type="radio"]');
+    const color = Array.from(colors).find(btn => btn.checked);
+    return color.dataset.color;
+}
 
-	function smoothCurveBetween (p1, p2) {
-	    const cp = p1.map((coord, index) => (coord + p2[index]) / 2);
-	    ctx.quadraticCurveTo(...p1, ...cp);
-	}
+const canvas = document.createElement('canvas');
+const ctx = canvas.getContext('2d');
+let pastSimple = Date.now();
+let presentCont;
+let brush = 4;
+let curves = [];
+let drawing = false;
+let needsRepaint = false;
 
-	function smoothCurve(points) {
-	    ctx.beginPath();
-	    ctx.lineWidth = brush;
-	    ctx.strokeStyle = color;
-	    ctx.lineJoin = "round";
-	    ctx.lineCap = "round";
-	  
-	    ctx.moveTo(...points[0]);
-		for(let i = 1; i < points.length - 1; i++) {
-			smoothCurveBetween(points[i], points[i + 1]);
-		}
+function showDrawing() {
+    HideCommentForm();
+    app.appendChild(canvas);
+    setCanvasSize(canvas);
 
-	    ctx.stroke();
-	}
+    canvas.addEventListener('mousemove', onMouseMoveCanvas);
+    canvas.addEventListener('mousedown', onMouseDownCanvas);
+    canvas.addEventListener('mouseup', onMouseUpCanvas);
+    canvas.addEventListener('mouseleave', onMouseLeaveCanvas);
+}
 
-	canvas.addEventListener("mousedown", (event) => { 
-		if (drawTools.style.display == "inline-block") {
-			drawing = true;
-	  		const curve = [];
-			curve.push([event.offsetX, event.offsetY]);
-			curves.push(curve);
-			needsRepaint = true;
-		}  
-	});
+function onMouseDownCanvas() {
+    drawing = true;
+    const curve = [];
+    curve.push([event.offsetX, event.offsetY]);
+    curves.push(curve);
+    needsRepaint = true;
+}
 
-	canvas.addEventListener("mouseup", (event) => {
-	    curves = [];
-	    drawing = false;
+function onMouseMoveCanvas() {
+    if (drawing) {
+        curves[curves.length - 1].push([event.offsetX, event.offsetY]);
+        needsRepaint = true;
+    }
+}
 
-		let canv = canvas;
-		let imageData = canv.toDataURL("image/png");
-		let byteArray = convertDataURIToBinary(imageData);
-		connection.send(byteArray.buffer);
+function onMouseUpCanvas() {
+    drawing = false;
+    presentCont = Date.now();
+    if (presentCont - pastSimple < 2000) {
+        return;
+    }
+    sendCanvas(canvas);
+    curves = [];
+    pastSimple = Date.now();
+}
 
-		function convertDataURIToBinary(dataURI) {
-			const marker = ';base64,';
-			let markerIndex = dataURI.indexOf(marker) + marker.length;
-			let base64 = dataURI.substring(markerIndex);
-			let raw = window.atob(base64);
-			let rawLength = raw.length;
-			let byteArray = new Uint8Array(new ArrayBuffer(rawLength));
+function onMouseLeaveCanvas() {
+    drawing = false;
+    ctx.stroke();
+}
 
-			for(let i = 0; i < rawLength; i++) {
-			  byteArray[i] = raw.charCodeAt(i);
-			};
+function rendering() {
+    clearCanvas();
+    curves.forEach(curve => {
+        circle(curve[0]);
+        smoothCurve(curve);
+    });
+}
 
-			return byteArray;
-		};
-	});
+function clearCanvas() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
 
-	canvas.addEventListener("mouseleave", (event) => {
-	    curves = [];
-	    drawing = false;
-	});
+function circle(points) {
+    ctx.beginPath();
+    ctx.fillStyle = checkColor();
+    ctx.arc(...points, brush / 2, 0, Math.PI * 2);
+    ctx.fill();
+}
 
-	canvas.addEventListener("mousemove", (event) => {
-	    if (drawing) {
-	      const point = [event.offsetX, event.offsetY];
-	      curves[curves.length - 1].push(point);
-	      needsRepaint = true;
-	    }
-	});
+function smoothCurve(points) {
+    ctx.beginPath();
+    ctx.lineWidth = brush;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.moveTo(...points[0]);
+    ctx.globalCompositeOperation = "source-over";
 
-	function repaint () {
-	    curves.forEach((curve) => smoothCurve(curve));
-	}
+    for (let i = 1; i < points.length - 1; i++) {
+        smoothCurveBetween(points[i], points[i + 1]);
+    }
+    ctx.stroke();
+}
 
-	function tick () {
-	    if(needsRepaint) {
-	      repaint();
-	      needsRepaint = false;
-	    }
-	    window.requestAnimationFrame(tick);
-	}
+function smoothCurveBetween(p1, p2) {
+    ctx.lineWidth = brush;
+    ctx.strokeStyle = checkColor();
+    const cp = p1.map((coord, idx) => (coord + p2[idx]) / 2);
+    ctx.quadraticCurveTo(...p1, ...cp);
+}
 
-	tick();
-});
+function tick() {
 
-function placeMask(url) {
-	const maskLayer = mask;
-    maskLayer.width = image.width;
-    maskLayer.height = image.height;
-	const context = maskLayer.getContext("2d");
-    context.clearRect(0, 0, maskLayer.width, maskLayer.height); 
-	let img = new Image;
+    if (needsRepaint) {
+        rendering();
+        needsRepaint = false;
+    }
 
-	img.addEventListener("load", () => { 
-    	context.drawImage(img, 0, 0); 
-	});
-	img.src = url;
-};
+    window.requestAnimationFrame(tick);
+}
+
+tick();
+
+function sendCanvas(canvas) {
+    createImgOverCanvas(canvas);
+    canvas.toBlob(blob => socket.send(blob));
+}
+
+function createImgOverCanvas(canvas) {
+    const imgOverCanvas = document.createElement('img');
+    imgOverCanvas.src = canvas.toDataURL();
+    setCanvasSize(imgOverCanvas);
+    imgOverCanvas.classList.add('over-canvas');
+    insertElement(imgOverCanvas);
+}
+
+function createImgMask(url) {
+    const mask = document.createElement('img');
+    setCanvasSize(mask);
+    mask.src = url;
+    mask.classList.add('image-mask');
+    insertElement(mask);
+}
+
+function insertElement(el) {
+    app.insertBefore(el, document.querySelector('.error'));
+}
