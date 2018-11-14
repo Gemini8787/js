@@ -1,4 +1,4 @@
-`use strict`;
+"use strict";
 
 draw.addEventListener("click", () => {
 	newLoad.style.display = "none";
@@ -111,7 +111,6 @@ draw.addEventListener("click", () => {
 	}
 
 	tick();
-
 });
 
 function placeMask(url) {
