@@ -1,4 +1,4 @@
-`use strict`;
+"use strict";
 
 mask.addEventListener("click", event => {
 	if (commentsTools.style.display == "inline-block" && commentsOn.checked) {		
@@ -27,8 +27,8 @@ app.addEventListener("submit", event => {
 	event.target.querySelector(".comment__loader").style.display = "initial";
 	event.target.querySelector(".comments__marker-checkbox").checked = true;
 	
-	const inputComments = event.target.querySelector(".comments__input");
-	const comment = {"message" : inputComments.value, "left" : parseInt(event.target.style.left), "top" : parseInt(event.target.style.top)};                                               
+	const input = event.target.querySelector(".comments__input");
+	const comment = {"message" : input.value, "left" : parseInt(event.target.style.left), "top" : parseInt(event.target.style.top)};                                               
 	
 	sendComment(comment); 
 	
@@ -54,7 +54,7 @@ function sendComment(comment) {
 	request.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 	request.send(requestArray);
 	console.log(requestArray);
-}
+};
 
 function loadComments(comments) {
 	for (let comment in comments) {
@@ -95,8 +95,8 @@ function placeComment(comment) {
     commentMessage.setAttribute("style", "white-space: pre;");
     commentMessage.textContent = comment.message;
 
-	const closeButton = commentEl.querySelector(".comments__close");
-    closeButton.addEventListener("click", () => {
+	const closeBtn = commentEl.querySelector(".comments__close");
+    closeBtn.addEventListener("click", () => {
     	commentEl.querySelector(".comments__marker-checkbox").checked = false;
     });
 	
@@ -135,4 +135,4 @@ function showCommentForm() {
 			commentForm.style.display = "none";
 		}
 	}
-}
+};
