@@ -1,4 +1,4 @@
-`use strict`;
+"use strict";
 
 const app = document.querySelector(".app");
 const menu = document.querySelector(".menu");
