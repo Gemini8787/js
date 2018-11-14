@@ -54,7 +54,7 @@ function sendComment(comment) {
 	request.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
 	request.send(requestArray);
 	console.log(requestArray);
-};
+}
 
 function loadComments(comments) {
 	for (let comment in comments) {
@@ -135,4 +135,4 @@ function showCommentForm() {
 			commentForm.style.display = "none";
 		}
 	}
-};
+}
