@@ -1,4 +1,4 @@
-`use strict`;
+"use strict";
 
 if (performance.navigation.type === 1 || window.location.href.indexOf("?id=") !== -1) {
     image.src = localStorage.getItem("saveImg");
@@ -23,8 +23,7 @@ if (performance.navigation.type === 1 || window.location.href.indexOf("?id=") !=
 		}
 	}, 2000);
 	
-	socketConnect();
-	
+	socketConnect();	
 };
 
 function sendFile(file) {
