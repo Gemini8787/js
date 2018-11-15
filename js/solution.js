@@ -1,574 +1,805 @@
 'use strict';
 
-const wrap = document.querySelector('.wrap.app'),
-    menu = wrap.querySelector('.menu'),
-    currentImage = wrap.querySelector('.current-image'),
-    error = wrap.querySelector('.error'),
-    imageLoader = wrap.querySelector('.image-loader'),
-    menuSize = menu.offsetHeight,
-    homeUrl = window.location.origin + `/index.html`,
-    clientWidth = document.documentElement.clientWidth;
+const tick = () => {
+  if (needsRendering) {
+    draw(ctx);
+    needsRendering = false;
+  }
 
-let dragMenu = null, 
-    currentColor = "#6ebf44",
-    newImageMask,
-    newImageMaskHeight,
-    isDrawing = false,
-    connection,
-    newCommentId,
-    serverId,
-    canvas,
-    ctx,
-    statusFirstSend = true, 
-    uploadStatus = false;
+  let crntMenuLeftPos = menu.getBoundingClientRect().left;
+  while (menu.offsetHeight > defaultMenuHeight) {
+    menu.style.left = (--crntMenuLeftPos) + "px";
+  }
 
-function loadInformFromId(id) {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', `https://neto-api.herokuapp.com/pic/${id}`);
-    xhr.send();
+  window.requestAnimationFrame(tick);
+};
+tick();
 
-    xhr.addEventListener('load', () => {
-        let newImage = JSON.parse(xhr.responseText);
-        choiceMenu();
-        loadImage(newImage);
-        wss(newImage.id);
-    });
+const getDate = timestamp => {
+  const date = new Date(timestamp);
+  const options = {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit"
+  };
+  return date.toLocaleString("ru-RU", options);
 };
 
-function choiceMenu() {
-    if (uploadStatus) {
-        uploadStatus = false;
-        reloadStatus('default');
-        menu.querySelector('.share').click();
-    } else {
-        reloadStatus('default');
-        menu.querySelector('.comments').click();
-    };
+const el = (name, attrs, childs) => {
+  const element = document.createElement(name || "div");
+
+  if (typeof attrs === "object" && attrs) {
+    Object.keys(attrs).forEach(key => element.setAttribute(key, attrs[key]));
+  }
+  if (Array.isArray(childs)) {
+    element.appendChild(
+      childs.reduce((f, child) => {
+        f.appendChild(child);
+        return f;
+      }, document.createDocumentFragment())
+    );
+  } else if (typeof childs === "string" || typeof childs === "number") {
+    element.appendChild(document.createTextNode(childs));
+  }
+
+  return element;
 };
 
-function showError(string) {
-    error.classList.remove('hidden');
-    error.querySelector('.error__message').textContent = string;
+const crtNewCommentNode = (date, message) => {
+  return el("div", { class: "comment" }, [
+    el("p", { class: "comment__time" }, date),
+    el("p", { class: "comment__message", style: "white-space: pre;" }, message)
+  ]);
 };
 
-function removeError() {
-    error.classList.add('hidden');
+const crtNewCommentsFormNode = (left, top) => {
+  return el("form", { class: "comments__form", style: `left: ${left}px; top: ${top}px;` }, [
+      el("span", { class: "comments__marker" }, null),
+      el("input",{ type: "checkbox", class: "comments__marker-checkbox" }, null),
+      el("div", { class: "comments__body", style: "overflow-y: auto;" }, [
+        el("div", { class: "comment" }, [
+          el("div", { class: "loader", style: "display: none;" }, [
+            el("span", null, null),
+            el("span", null, null),
+            el("span", null, null),
+            el("span", null, null),
+            el("span", null, null)
+          ])
+        ]),
+        el("textarea", { class: "comments__input", type: "text", placeholder: "Напишите ответ..." }, null),
+        el("input", { class: "comments__close", type: "button", value: "Закрыть" }, null),
+        el("input", { class: "comments__submit", type: "submit", value: "Отправить" }, null)
+      ])
+    ]
+  );
 };
 
-function changeUrlNew(id) {
-    menu.querySelector('.menu__url').value = window.location.origin + `/index.html?${id}`;
+const crtNewCommentsForm = (left, top) => {
+  const newCommentsForm = crtNewCommentsFormNode(left, top);
+
+  newCommentsForm.firstElementChild.dataset.left = parseInt(newCommentsForm.style.left);
+  newCommentsForm.firstElementChild.dataset.top = parseInt(newCommentsForm.style.top);
+  return newCommentsForm;
 };
 
-function loadImage(obj) {
-    if (obj.url) {
-        sessionStorage.id = obj.id;
-        sessionStorage.url = obj.url;
-        currentImage.src = obj.url;
-        currentImage.dataset.load = 'load';
-        currentImage.addEventListener('load', (event) => {
-            if (wrap.querySelector('canvas')) wrap.querySelectorAll('canvas').forEach(canvas => canvas.remove());
-            createCanvas();
-        });
-    } else return;
+const parseNewCommentsForm = comment => {
+  const newCommentsForm = crtNewCommentsForm(comment.left, comment.top);
+  const [commentsBody] = newCommentsForm.getElementsByClassName("comments__body");
+  const [loader] = newCommentsForm.getElementsByClassName("loader");
+  const commentDate = getDate(comment.timestamp).replace(",", "");
+  const newComment = crtNewCommentNode(commentDate, comment.message);
+
+  newComment.dataset.timestamp = comment.timestamp;
+  picture.appendChild(newCommentsForm);
+  commentsBody.insertBefore(newComment, loader.parentElement);
+  return newCommentsForm;
 };
 
-function createCanvas() {
-    const drawArea = document.createElement('canvas');
-    drawArea.classList.add('canvas-area');
-    wrap.appendChild(drawArea);
-    wrap.insertBefore(currentImage, wrap.querySelector('.canvas-area'));
-    drawArea.width = currentImage.width;
-    drawArea.height = currentImage.height;
-    canvas = wrap.querySelector('.canvas-area');
-    ctx = canvas.getContext('2d');
+const appendNewComment = (comment, commentsForm) => {
+  const [commentsBody] = commentsForm.getElementsByClassName("comments__body");
+  const comments = Array.from(commentsBody.getElementsByClassName("comment"));
+  const commentDate = getDate(comment.timestamp).replace(",", "");
+  const newComment = crtNewCommentNode(commentDate, comment.message);
+  const nextComment = comments.find(curComment => Number(curComment.dataset.timestamp) > comment.timestamp);
 
-    function startDrawing(e) {
-        if (menu.querySelector('.menu__item.mode.draw').dataset.state === "selected") isDrawing = true;
-        ctx.strokeStyle = currentColor;
-        ctx.beginPath();
-        ctx.moveTo(e.pageX - canvas.getBoundingClientRect().left, e.pageY - canvas.getBoundingClientRect().top);
-    };
-
-    function draw(e) {
-        if (isDrawing == true) {
-            var x = e.pageX - canvas.getBoundingClientRect().left;
-            var y = e.pageY - canvas.getBoundingClientRect().top;
-            ctx.lineTo(x, y);
-            ctx.stroke();
-        };
-    };
-
-    function stopDrawing() {
-        if (isDrawing) sendMaskState();
-        isDrawing = false;
-    };
-
-    function sendMaskState() {
-        canvas.toBlob(function (blob) {
-            connection.send(blob);
-            if (statusFirstSend) {
-                statusFirstSend = false;
-                connection.close();
-            };
-        });
-    };
-
-    drawArea.addEventListener('mousedown', startDrawing);
-    drawArea.addEventListener('mouseup', stopDrawing);
-    drawArea.addEventListener('mouseout', stopDrawing);
-    drawArea.addEventListener('mousemove', draw);
+  newComment.dataset.timestamp = comment.timestamp;
+  commentsBody.insertBefore(newComment, nextComment ? nextComment : comments[comments.length - 1]);
 };
 
-function createNewImageMask(url) {
-    if (!wrap.querySelector('.image-mask')) {
-        let newImage = document.createElement('img');
-        newImage.classList.add('image-mask');
-        wrap.appendChild(newImage);
-        wrap.insertBefore(currentImage, wrap.querySelector('.image-mask'));
-    };
-    if (!url) {
-        wrap.querySelector('.image-mask').setAttribute('src', " ");
-        wrap.querySelector('.image-mask').classList.add('hidden');
-    } else {
-        wrap.querySelector('.image-mask').setAttribute('src', url);
-        wrap.querySelector('.image-mask').classList.remove('hidden');
-        wrap.querySelector('.image-mask').addEventListener('load', (e) => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        });
-    };
+const renderComments = imgData => {
+  if (imgData.comments) {
+    const Forms = Object.keys(imgData.comments).reduce((forms, id) => {
+      const commentsMarker = forms.querySelector(`.comments__marker[data-left="${imgData.comments[id].left}"][data-top="${imgData.comments[id].top}"]`);
+
+      if (forms && commentsMarker) {
+        appendNewComment(imgData.comments[id], commentsMarker.parentElement);
+        return forms;
+      } else {
+        const newCommentsForm = parseNewCommentsForm(imgData.comments[id], id);
+        forms.appendChild(newCommentsForm);
+        return forms;
+      }
+    }, document.createDocumentFragment());
+
+    picture.appendChild(Forms);
+  }
+
+  if (getSessionSettings("menuSettings").displayComments === "hidden") {
+    toggleCommentsForm(commentsOff);
+    commentsOff.checked = true;
+  }
 };
 
-function wss(id) {
-    changeUrlNew(id);
-    serverId = id;
-    connection = new WebSocket(`wss://neto-api.herokuapp.com/pic/${id}`);
+const toggleCommentsFormShow = event => {
+  if (event.target.classList.contains("menu__toggle")) {
+    toggleCommentsForm(event.target);
 
-    connection.addEventListener('message', event => {
-        if (JSON.parse(event.data).event === 'pic') {
-            if (JSON.parse(event.data).pic.comments) {
-                const comments = JSON.parse(event.data).pic.comments;
-                for (let key in comments) {
-                    upgrateComment(comments[key]);
-                };
-                wrap.querySelectorAll('.comments__marker-checkbox').forEach(elem => elem.checked = false);
-            };
-            if (JSON.parse(event.data).pic.mask) {
-                createNewImageMask(JSON.parse(event.data).pic.mask);
-            } else {
-                createNewImageMask();
-            };
-        };
-        if (JSON.parse(event.data).event === 'mask') {
-            createNewImageMask(JSON.parse(event.data).url);
-        };
-        if (JSON.parse(event.data).event === 'comment') {
-            wrap.querySelectorAll('.loader').forEach(elem => elem.classList.add('hidden'));
-            upgrateComment(JSON.parse(event.data).comment);
-        };
-    });
-
-    connection.addEventListener('close', event => {
-        wss(id);
-    });
+    const menuSettings = getSessionSettings("menuSettings");
+    menuSettings.displayComments = menuSettings.displayComments ? "" : "hidden";
+    sessionStorage.menuSettings = JSON.stringify(menuSettings);
+  }
 };
 
-function updateFilesInfo(files) {
-    if (files[0].type !== "image/png" && files[0].type !== "image/jpeg") {
-        showError('Неверный формат файла. Пожалуйста, выберите изображение в формате .jpg или .png.');
-        return;
-    };
-    sendFile(files[0]);
-};
+const toggleDisplayCommentsForm = (commentsFormCheckbox, isClosedByBtn) => {
+  if (commentsFormCheckbox) {
+    const [comment] = commentsFormCheckbox.parentElement.getElementsByClassName("comment");
 
-function sendFile(file) {
-    wrap.querySelectorAll('.comments__form').forEach(elem => elem.remove());
-    const formData = new FormData();
-
-    formData.append('title', file.name);
-    formData.append('image', file);
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', 'https://neto-api.herokuapp.com/pic', true);
-
-    xhr.addEventListener('loadstart', (event) => {
-        removeError();
-        imageLoader.style.display = 'block';
-    });
-
-    xhr.addEventListener('loadend', () => {
-        if (xhr.status !== 200) {
-            showError('Проблемы с загрузкой изображения, попробуйте позже');
-        };
-        imageLoader.style.display = 'none';
-    });
-
-    xhr.addEventListener('load', (event) => {
-        if (xhr.status === 200) {
-            let newCurrentImage = JSON.parse(xhr.responseText);
-            loadInformFromId(newCurrentImage.id);
-            uploadStatus = true;
-        } else console.log('error');
-    });
-
-    xhr.send(formData);
-};
-
-function createNewInput() {
-    const newInput = document.createElement('input');
-    newInput.setAttribute('type', 'file');
-    newInput.setAttribute('class', 'downloadFile');
-    newInput.style.position = 'absolute';
-    newInput.style.display = 'block';
-    newInput.style.top = '0px';
-    newInput.style.left = '0px';
-    newInput.style.height = `${document.querySelector('.menu__item.mode.new').offsetHeight}px`;
-    newInput.style.width = `${document.querySelector('.menu__item.mode.new').offsetWidth}px`;
-    newInput.style.opacity = '0';
-
-    newInput.addEventListener('change', onSelectFiles);
-
-    function onSelectFiles(event) {
-        const files = Array.from(event.currentTarget.files);
-        updateFilesInfo(files);
-    };
-
-    document.querySelector('.menu__item.mode.new').appendChild(newInput);
-};
-
-document.addEventListener('DOMContentLoaded', createNewInput);
-
-function reloadStatus(string) {
-    menu.querySelector('.burger').style.display = 'none';
-    wrap.dataset.state = string;
-    if (string === 'default') {
-        menu.dataset.state = 'default';
-        menu.querySelectorAll('[data-state]').forEach(item => item.dataset.state = '');
-    };
-    if (string === 'initial') {
-        menu.dataset.state = 'initial';
-        menu.querySelectorAll('[data-state]').forEach(item => item.dataset.state = '');
-    };
-    if (string === 'selected') {
-        menu.querySelector('.burger').style.display = '';
-        menu.dataset.state = 'selected';
-    };
-};
-
-function onFilesDrop(event) {
-    event.preventDefault();
-    const files = Array.from(event.dataTransfer.files);
-    if (currentImage.dataset.load === 'load') {
-        showError('Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом «Загрузить новое» в меню.');
-        return;
-    };
-    updateFilesInfo(files);
-};
-
-wrap.addEventListener('drop', onFilesDrop);
-wrap.addEventListener('dragover', event => event.preventDefault());
-
-
-function requestImageInfo() {
-    const str = window.location.href;
-    const regex = /\?(.*)/;
-    let id = str.match(regex);
-    if (id) {
-        loadInformFromId(id[1]);
-    } else if (sessionStorage.id) {
-        loadInformFromId(sessionStorage.id);
-        reloadStatus('default');
-    } else {
-        reloadStatus('initial');
-    };
-};
-
-document.addEventListener('DOMContentLoaded', requestImageInfo);
-
-function requestLastMenuPosition() {
-    if (localStorage.x && localStorage.y) {
-        menu.style.setProperty('--menu-left', `${localStorage.x}px`);
-        menu.style.setProperty('--menu-top', `${localStorage.y}px`);
-    } else return;
-};
-
-document.addEventListener('DOMContentLoaded', requestLastMenuPosition);
-
-menu.addEventListener('click', event => {
-    const burgerMenu = menu.querySelector('.burger'),
-        modeMenuAll = menu.querySelectorAll('[data-state]'),
-        modeComments = menu.querySelector('.comments'),
-        modeCommentsAll = wrap.querySelectorAll('.comments__form'),
-        modeDraw = menu.querySelector('.draw'),
-        modeShare = menu.querySelector('.share'),
-        modeCopy = menu.querySelector('.menu_copy'),
-        modeToggle = menu.querySelectorAll('.menu__toggle');
-
-    if (event.target === burgerMenu || event.target.parentNode === burgerMenu) {
-        reloadStatus('default');
-    };
-    if (event.target === modeComments || event.target.parentNode === modeComments) {
-        modeMenuAll.forEach(item => item.dataset.state = " ");
-        modeComments.dataset.state = 'selected';
-        reloadStatus('selected');
-    };
-    if (event.target === modeDraw || event.target.parentNode === modeDraw) {
-        modeMenuAll.forEach(item => item.dataset.state = " ");
-        modeDraw.dataset.state = 'selected';
-        reloadStatus('selected');
-    };
-    if (event.target === modeShare || event.target.parentNode === modeShare) {
-        modeMenuAll.forEach(item => item.dataset.state = " ");
-        modeShare.dataset.state = 'selected';
-        reloadStatus('selected');
-    };
-    if (event.target === modeCopy) {
-        menu.querySelector('.menu__url').select();
-        try {
-            let successful = document.execCommand('copy');
-            let msg = successful ? 'успешно ' : 'не';
-            console.log(`URL ${msg} скопирован`);
-        } catch (err) {
-            console.log('Ошибка копирования');
-        };
-        window.getSelection().removeAllRanges();
-    };
-    if (event.target === modeToggle[0] || event.target === modeToggle[1]) {
-        if (event.target.value === 'off') {
-            modeCommentsAll.forEach(elem => elem.classList.add('hidden'));
-        };
-        if (event.target.value === 'on') {
-            modeCommentsAll.forEach(elem => elem.classList.remove('hidden'));
-        };
-    };
-    if (event.target.classList.contains('menu__color')) {
-        menu.querySelectorAll('.menu__color').forEach(elem => {
-            if (elem.hasAttribute('checked')) elem.removeAttribute('checked');
-        });
-        event.target.setAttribute('checked', 'checked');
-        switch (event.target.value) {
-            case 'red':
-                currentColor = '#eb5d56';
-                break;
-            case 'yellow':
-                currentColor = '#f4d22f';
-                break;
-            case 'green':
-                currentColor = '#6ebf44';
-                break;
-            case 'blue':
-                currentColor = '#52a7f7';
-                break;
-            case 'purple':
-                currentColor = '#b36ae0';
-                break;
-            default:
-                currentColor = '#6ebf44';
-                break;
-        };
-    };
-    if (!error.classList.contains('hidden')) removeError();
-    checkMenuBody(event.currentTarget, event.currentTarget.getBoundingClientRect().left);
-});
-
-function checkMenuBody(block, x) {
-    if (block.offsetHeight > menuSize) {
-        x--;
-        menu.style.setProperty('--menu-left', x + 'px');
-        checkMenuBody(block, x);
-    } else return;
-};
-
-menu.firstElementChild.addEventListener('mousedown', event => {
-    dragMenu = event.currentTarget;
-});
-
-document.addEventListener('mousemove', event => {
-    event.preventDefault();
-    if (dragMenu) {
-        if (event.pageX < 0 + dragMenu.offsetWidth) {
-            menu.style.setProperty('--menu-left', 0 + 'px');
-            localStorage.x = 0;
-        } else if (event.pageX + menu.offsetWidth > document.documentElement.clientWidth - dragMenu.offsetWidth - 1) {
-            menu.style.setProperty('--menu-left', document.documentElement.clientWidth - menu.offsetWidth - 1 + 'px');
-            localStorage.x = document.documentElement.clientWidth - menu.offsetWidth - 1;
-        } else {
-            menu.style.setProperty('--menu-left', event.pageX - (dragMenu.offsetWidth / 2) + 'px');
-            localStorage.x = event.pageX - (dragMenu.offsetWidth / 2);
-        };
-        if (event.pageY < 0 + dragMenu.offsetHeight) {
-            menu.style.setProperty('--menu-top', 0 + 'px');
-            localStorage.y = 0;
-        } else if (event.pageY + (menu.offsetHeight / 2) > document.documentElement.clientHeight - (dragMenu.offsetHeight / 2)) {
-            menu.style.setProperty('--menu-top', document.documentElement.clientHeight - dragMenu.offsetHeight + 'px');
-            localStorage.y = document.documentElement.clientHeight - dragMenu.offsetHeight;
-        } else {
-            menu.style.setProperty('--menu-top', event.pageY - (dragMenu.offsetHeight / 2) + 'px');
-            localStorage.y = event.pageY - (dragMenu.offsetHeight / 2);
-        };
-    };
-});
-
-document.addEventListener('mouseup', event => {
-    dragMenu = null;
-});
-
-function upgrateComment(obj) {
-    if (wrap.querySelector(`.comments__form[data-comment-id='${obj.left + '&' + obj.top}']`)) {
-        const cont = wrap.querySelector(`.comments__form[data-comment-id='${obj.left + '&' + obj.top}']`);
-        addNewComment(obj.message, obj.timestamp, cont);
-    } else {
-        addNewFormComment(obj.left, obj.top);
-        upgrateComment(obj);
-    };
-};
-
-wrap.addEventListener('click', (e) => {
-    if (e.target === wrap.querySelector('canvas') && menu.querySelector('.menu__item.mode.comments').dataset.state === 'selected') {
-        if (wrap.querySelector('[data-comment-id]')) {
-            wrap.querySelectorAll('[data-comment-id]').forEach(elem => {
-                if (!elem.querySelector('p')) elem.remove();
-            });
-            addNewFormComment(e.pageX, e.pageY);
-        } else addNewFormComment(e.pageX, e.pageY);
-    };
-});
-
-function addNewFormComment(x, y) {
-    const form = document.createElement('form');
-    form.classList.add('comments__form');
-    form.style.left = `${x}px`;
-    form.style.top = `${y}px`;
-    form.dataset.left = x;
-    form.dataset.top = y;
-    form.style.zIndex = '4';
-
-    const id = x + '&' + y;
-    newCommentId = id;
-    form.dataset.commentId = id;
-
-    const spanMarker = document.createElement('span');
-    spanMarker.classList.add('comments__marker');
-    form.appendChild(spanMarker);
-
-    form.addEventListener('submit', sendMessage);
-
-    const inputMarker = document.createElement('input');
-    inputMarker.setAttribute('type', 'checkbox');
-    inputMarker.checked = true;
-    inputMarker.classList.add('comments__marker-checkbox');
-
-    form.appendChild(inputMarker);
-
-    const divBody = document.createElement('div');
-    divBody.classList.add('comments__body');
-    form.appendChild(divBody);
-
-    const commentBox = document.createElement('div');
-    commentBox.classList.add('comment');
-    divBody.appendChild(commentBox);
-
-    const loader = document.createElement('div');
-    loader.classList.add('loader');
-    loader.classList.add('hidden');
-    commentBox.appendChild(loader);
-
-    for (let i = 0; i < 5; i++) {
-        const loadSpan = document.createElement('span');
-        loader.appendChild(loadSpan);
-    };
-
-    const textArea = document.createElement('textarea');
-    textArea.classList.add('comments__input');
-    textArea.setAttribute('type', 'text');
-    textArea.setAttribute('placeholder', 'Напишите ответ...');
-    divBody.appendChild(textArea);
-
-    const inputClose = document.createElement('input');
-    inputClose.classList.add('comments__close');
-    inputClose.setAttribute('type', 'button');
-    inputClose.setAttribute('value', 'Закрыть');
-    divBody.appendChild(inputClose);
-
-    const inputSubmit = document.createElement('input');
-    inputSubmit.classList.add('comments__submit');
-    inputSubmit.setAttribute('type', 'submit');
-    inputSubmit.setAttribute('value', 'Отправить');
-    divBody.appendChild(inputSubmit);
-
-    form.addEventListener('click', (e) => {
-        if (event.target.classList.contains('comments__close') && event.currentTarget.querySelector('p')) {
-            event.currentTarget.querySelector('.comments__marker-checkbox').checked = false;
-        }
-        if (event.target.classList.contains('comments__close') && !event.currentTarget.querySelector('p')) {
-            event.currentTarget.remove();
-        };
-    });
-
-    wrap.appendChild(form);
-};
-
-function addNewComment(text, time, cont) {
-    const comment = document.createElement('div');
-    comment.classList.add('comment');
-
-    const newtime = document.createElement('p');
-    newtime.classList.add('comment__time');
-    const d = new Date(time);
-    newtime.textContent = `${formatData(d.getDate())}:${formatData(d.getMonth() + 1)}:${formatData(d.getFullYear())} ${formatData(d.getHours())}:${formatData(d.getMinutes())}:${formatData(d.getSeconds())}`;
-    comment.appendChild(newtime);
-
-    const newMessage = document.createElement('p');
-    newMessage.classList.add('comment__message');
-    newMessage.innerText = text;
-    comment.appendChild(newMessage);
-
-    cont.querySelector('.comments__body').insertBefore(cont.querySelector('.comments__body').appendChild(comment), cont.querySelector('.loader').parentNode);
-};
-
-window.addEventListener('resize', (e) => {
-    let formComment = wrap.querySelector('.comments__form');
-    if (formComment) {
-        let formComments = wrap.querySelectorAll('.comments__form');
-        formComments.forEach(form => {
-            form.style.left = `${form.dataset.left - ((clientWidth - document.documentElement.clientWidth) / 2)}px`;
-        });
-    };
-});
-
-function formatData(data) {
-    if (data < 10) {
-        return '0' + data;
-    } else return data;
-};
-
-function sendMessage(event) {
-    if (event) {
-        event.preventDefault();
+    if (comment.firstElementChild.classList.contains("loader")) {
+      picture.removeChild(commentsFormCheckbox.parentElement);
     }
-    const message = event.target.querySelector('.comments__input').value;
-    const messageForm = `message=${encodeURIComponent(message)}&left=${encodeURIComponent(event.target.dataset.left)}&top=${encodeURIComponent(event.target.dataset.top)}`;
-    if (message.length > 0) sendMessageForm(messageForm);
-    else return;
-    event.target.querySelector('.loader').classList.remove('hidden');
-    event.target.querySelector('.comments__input').value = '';
+    if (!isClosedByBtn || !comment.firstElementChild.classList.contains("loader")) {
+      commentsFormCheckbox.parentElement.style.zIndex = "";
+      commentsFormCheckbox.checked = commentsFormCheckbox.disabled = false;
+    }
+  }
 };
 
-function sendMessageForm(form) {
-    fetch(`https://neto-api.herokuapp.com/pic/${serverId}/comments`, {
-        method: 'POST',
-        body: form,
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-    })
-        .then(res => {
-            if (res.status >= 200 && res.status < 300) {
-                return res;
-            };
-            throw new Error(res.statusText);
-        })
-        .then(res => res.json())
-        .catch(er => {
-            console.log(er);
-        });
+commentsTools.addEventListener("change", toggleCommentsFormShow);
+
+const addNewCommentsForm = event => {
+  if (event.target.classList.contains("current-image") && commentsBtn.dataset.state === "selected") {
+    const prevCommentsFormCheckbox = picture.querySelector(`.comments__marker-checkbox[disabled=""]`);
+    toggleDisplayCommentsForm(prevCommentsFormCheckbox, false);
+
+    const newCommentsForm = crtNewCommentsForm(event.offsetX - clickPointShifts.left, event.offsetY - clickPointShifts.top);
+    picture.appendChild(newCommentsForm);
+    newCommentsForm.getElementsByClassName("comments__marker-checkbox")[0].checked = true;
+    newCommentsForm.getElementsByClassName("comments__marker-checkbox")[0].disabled = true;
+    newCommentsForm.style.zIndex = "5";
+  }
+};
+
+const openCommentsForm = event => {
+  if (event.target.classList.contains("comments__marker-checkbox") && event.target.checked) {
+    const prevCommentsFormCheckbox = picture.querySelector(`.comments__marker-checkbox[disabled=""]`);
+
+    toggleDisplayCommentsForm(prevCommentsFormCheckbox, false);
+    event.target.disabled = true;
+    event.target.parentElement.style.zIndex = "5";
+  }
+};
+
+const typeComment = event => {
+  if (event.target.classList.contains("comments__input")) {
+    event.target.focus();
+  }
+};
+
+const loadComment = (imgData, left, top) => {
+  const commentForm = app.querySelector(`.comments__marker[data-left="${left}"][data-top="${top}"]`).parentElement;
+  const [loader] = commentForm.getElementsByClassName("loader");
+
+  for (const id in imgData.comments) {
+    const comment = imgData.comments[id];
+    const isPostedComment = app.querySelector(`.comment[data-timestamp="${comment.timestamp}"]`);
+
+    if (comment.left === left && comment.top === top && !isPostedComment) {
+      appendNewComment(comment, commentForm);
+      hideElement(loader);
+      break;
+    }
+  }
+
+  const menuSettings = getSessionSettings("menuSettings");
+  if (menuSettings.displayComments === "hidden") {
+    toggleCommentsForm(commentsOff);
+  }
+
+  return imgData;
+};
+
+const postComment = (message, left, top) => {
+  const id = getSessionSettings("imageSettings").id;
+  const body = `message=${encodeURIComponent(message)}&left=${encodeURIComponent(left)}&top=${encodeURIComponent(top)}`;
+
+  return fetch(`https:${apiURL}/${id}/comments`, {
+    body: body,
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    }
+  })
+  .then(checkResponseStatus)
+  .then(data => loadComment(data, left, top))
+  .then(saveImageSettings)
+  .catch(err => console.error(err));
+};
+
+const sendComment = event => {
+  if (event.target.classList.contains("comments__submit")) {
+    event.preventDefault();
+    const crntCommentsForm = event.target.parentElement.parentElement;
+    const [loader] = crntCommentsForm.getElementsByClassName("loader");
+    const [input] = crntCommentsForm.getElementsByClassName("comments__input");
+    const left = parseInt(crntCommentsForm.style.left);
+    const top = parseInt(crntCommentsForm.style.top);
+
+    showElement(loader);
+    postComment(input.value ? input.value : "\n", left, top);
+    input.value = "";
+  }
+};
+
+const pressEnter = event => {
+  if (!event.repeat && !event.shiftKey && event.code === "Enter" && event.target.classList.contains("comments__input")) {
+    const submit = event.target.nextElementSibling.nextElementSibling;
+    submit.dispatchEvent(new MouseEvent("click", event));
+    event.target.blur();
+  }
+};
+
+const closeCommentsForm = event => {
+  if (event.target.classList.contains("comments__close")) {
+    const [checkbox] = event.target.parentElement.parentElement.getElementsByClassName("comments__marker-checkbox");
+    toggleDisplayCommentsForm(checkbox, true);
+  }
+};
+
+picture.addEventListener("click", addNewCommentsForm);
+picture.addEventListener("change", openCommentsForm);
+picture.addEventListener("click", typeComment);
+picture.addEventListener("click", sendComment);
+picture.addEventListener("keydown", pressEnter);
+picture.addEventListener("click", closeCommentsForm);
+
+let dragged = null;
+let draggedSettings = null;
+
+const throttle = cb => {
+  let isWaiting = false;
+  return function(...args) {
+    if (!isWaiting) {
+      cb.apply(this, args);
+      isWaiting = true;
+      requestAnimationFrame(() => (isWaiting = false));
+    }
+  };
+};
+
+const putMenu = event => {
+  if (event.target.classList.contains("drag")) {
+    dragged = event.currentTarget;
+
+    const draggedBounds = event.target.getBoundingClientRect();
+    const draggedCSS = getComputedStyle(dragged);
+
+    draggedSettings = {
+      shiftX: draggedBounds.width / 2,
+      shiftY: draggedBounds.height / 2,
+      minX: app.offsetLeft,
+      maxX: app.offsetWidth - parseInt(draggedCSS.width),
+      minY: app.offsetTop,
+      maxY: app.offsetHeight - parseInt(draggedCSS.height)
+    };
+  }
+};
+
+const dragMenu = (event, pageX, pageY) => {
+  if (dragged) {
+    event.preventDefault();
+    let X = pageX - draggedSettings.shiftX;
+    let Y = pageY - draggedSettings.shiftY;
+
+    X = Math.min(X, draggedSettings.maxX);
+    Y = Math.min(Y, draggedSettings.maxY);
+    X = Math.max(X, draggedSettings.minX);
+    Y = Math.max(Y, draggedSettings.minY);
+
+    dragged.style.left = X + "px";
+    dragged.style.top = Y + "px";
+    dragged.style.pointerEvents = "none";
+  }
+};
+
+const dropMenu = () => {
+  if (dragged) {
+    const menuSettings = getSessionSettings("menuSettings");
+
+    dragged.style.pointerEvents = "";
+    if (menuSettings) {
+      menuSettings.left = dragged.offsetLeft;
+      menuSettings.top = dragged.offsetTop;
+      sessionStorage.menuSettings = JSON.stringify(menuSettings);
+    } else {
+      sessionStorage.menuSettings = JSON.stringify({
+        left: dragged.offsetLeft,
+        top: dragged.offsetTop
+      });
+    }
+    dragged = null;
+  }
+};
+
+const moveMenu = throttle((...coords) => dragMenu(...coords));
+menu.addEventListener("mousedown", putMenu);
+app.addEventListener("mousemove", event => moveMenu(event, event.pageX, event.pageY));
+app.addEventListener("mouseup", dropMenu);
+
+const penWidth = 4;
+
+let checkedColorBtn = menu.querySelector(`.menu__color[checked=""]`);
+let penColor = getComputedStyle(checkedColorBtn.nextElementSibling).backgroundColor;
+let strokes = [];
+let isDrawing = false;
+let needsRendering = false;
+
+const drawPoint = point => {
+  ctx.beginPath();
+  ctx.arc(...point, penWidth / 2, 0, 2 * Math.PI);
+  ctx.fill();
+};
+
+const drawStroke = points => {
+  ctx.beginPath();
+  ctx.lineCap = ctx.lineJoin = "round";
+  ctx.moveTo(...points[0]);
+  for (let i = 1; i < points.length - 1; i++) {
+    ctx.lineTo(...points[i], ...points[i + 1]);
+  }
+  ctx.stroke();
+};
+
+const makePoint = (x, y) => [x, y];
+
+const draw = () => {
+  strokes.forEach(stroke => {
+    drawPoint(stroke[0]);
+    drawStroke(stroke);
+  });
+};
+
+const sendMask = () => {
+  canvas.toBlob(blob => socket.send(blob));
+};
+
+const mouseDown = event => {
+  if (drawBtn.dataset.state === "selected") {
+    isDrawing = true;
+
+    const stroke = [];
+    stroke.push(makePoint(event.offsetX, event.offsetY));
+    strokes.push(stroke);
+    needsRendering = true;
+  }
+};
+
+const mouseMove = event => {
+  if (isDrawing) {
+    const stroke = strokes[0];
+    stroke.push(makePoint(event.offsetX, event.offsetY));
+    needsRendering = true;
+  }
+};
+
+const mouseUp = event => {
+  if (drawBtn.dataset.state === "selected") {
+    isDrawing = false;
+    strokes = [];
+    setTimeout(sendMask, 1000);
+  }
+};
+
+const initDraw = event => {
+  ctx.strokeStyle = ctx.fillStyle = getComputedStyle(checkedColorBtn.nextElementSibling).backgroundColor;
+  ctx.lineWidth = penWidth;
+
+  const changeColor = event => {
+    if (event.target.checked) {
+      checkedColorBtn.removeAttribute("checked");
+      checkedColorBtn = event.target;
+      event.target.setAttribute("checked", "");
+
+      ctx.strokeStyle = ctx.fillStyle = penColor = getComputedStyle(event.target.nextElementSibling).backgroundColor;
+    }
+  };
+
+  drawTools.addEventListener("change", changeColor);
+  canvas.addEventListener("mousedown", mouseDown);
+  canvas.addEventListener("mousemove", mouseMove);
+  canvas.addEventListener("mouseup", mouseUp);
+  canvas.addEventListener("mouseleave", () => (isDrawing = false));
+};
+
+drawBtn.addEventListener("click", initDraw);
+
+const [app] = document.getElementsByClassName("app");
+const [menu] = app.getElementsByClassName("menu");
+const [burgerBtn] = menu.getElementsByClassName("burger");
+const [newImgBtn] = menu.getElementsByClassName("new");
+const [commentsBtn] = menu.getElementsByClassName("comments");
+const [commentsTools] = menu.getElementsByClassName("comments-tools");
+const commentsOn = document.getElementById("comments-on");
+const commentsOff = document.getElementById("comments-off");
+const [drawBtn] = menu.getElementsByClassName("draw");
+const [drawTools] = menu.getElementsByClassName("draw-tools");
+const [shareBtn] = menu.getElementsByClassName("share");
+const [shareTools] = menu.getElementsByClassName("share-tools");
+const [urlTextarea] = shareTools.getElementsByClassName("menu__url");
+const [image] = app.getElementsByClassName("current-image");
+const [preloader] = app.getElementsByClassName("image-loader");
+const [errorMsg] = app.getElementsByClassName("error");
+const [errorHeader] = errorMsg.getElementsByClassName("error__header");
+const [errorText] = errorMsg.getElementsByClassName("error__message");
+
+const markerBounds = app.getElementsByClassName("comments__marker")[0].getBoundingClientRect();
+const formBounds = app.getElementsByClassName("comments__form")[0].getBoundingClientRect();
+const defaultMenuHeight = menu.offsetHeight;
+const clickPointShifts = {
+  left: markerBounds.left - formBounds.left + markerBounds.width / 2,
+  top: markerBounds.top - formBounds.top + markerBounds.height
+};
+
+const apiURL = "//neto-api.herokuapp.com/pic";
+
+const picture = document.createElement("div");
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d");
+
+const renderApp = () => {
+  app.removeChild(app.getElementsByClassName("comments__form")[0]);
+  picture.appendChild(image);
+  picture.insertBefore(canvas, image.nextElementSibling);
+  hideElement(canvas);
+  app.insertBefore(picture, menu.nextElementSibling);
+
+  const urlParamID = new URL(`${window.location.href}`).searchParams.get("id");
+  const menuSettings = getSessionSettings("menuSettings");
+
+  if (menuSettings) {
+    if (urlParamID) {
+      selectMenuModeTo(menuSettings.mode, menuSettings.selectItemType);
+      if (menuSettings.selectItemType === "draw") {
+        image.addEventListener("load", initDraw);
+      }
+    } else {
+      delete sessionStorage.imageSettings;
+      selectMenuModeTo("initial");
+    }
+
+    menu.style.left = menuSettings.left + "px";
+    menu.style.top = menuSettings.top + "px";
+
+    commentsOff.checked = menuSettings.displayComments === "hidden" ? true : false;
+  } else {
+    selectMenuModeTo("initial");
+  }
+
+  const imageSettings = getSessionSettings("imageSettings");
+  image.src = "";
+
+  if (imageSettings && urlParamID) {
+    image.dataset.status = "load";
+    image.src = imageSettings.url;
+    urlTextarea.value = imageSettings.path;
+    initWSSConnection(imageSettings.id);
+  } else if (urlParamID) {
+    isLinkedFromShare = true;
+    loadImage({ id: urlParamID });
+  }
+};
+
+image.addEventListener("load", () => {
+    picture.style.width = image.width + "px";
+    picture.style.height = image.height + "px";
+    picture.classList.add("current-image", "picture-wrap");
+
+    canvas.width = image.width;
+    canvas.height = image.height;
+    canvas.classList.add("current-image", "mask-canvas");
+    showElement(canvas);
+});
+
+document.addEventListener("DOMContentLoaded", renderApp);
+
+const showElement = el => {
+  el.style.display = "";
+};
+
+const hideElement = el => {
+  el.style.display = "none";
+};
+
+const toggleCommentsForm = radioBtn => {
+  Array.from(app.getElementsByClassName("comments__form")).forEach(comments => {
+    if (radioBtn.value === "on") {
+      showElement(comments);
+    } else {
+      hideElement(comments);
+    }
+  });
+};
+
+const saveImageSettings = imgData => {
+  urlTextarea.value = imgData.path = `${window.location.href.replace(/\?id=.*$/, "")}?id=${imgData.id}`;
+  sessionStorage.imageSettings = JSON.stringify(imgData);
+};
+
+const getSessionSettings = key => {
+  try {
+    if (sessionStorage[key]) {
+      return JSON.parse(sessionStorage[key]);
+    }
+  } catch (err) {
+    console.error(`${err}`);
+  }
+};
+
+const checkResponseStatus = resp => {
+  if (200 <= resp.status && resp.status < 300) {
+    return resp.json();
+  } else {
+    errorHeader.textContent = `Ошибка: ${resp.status}`;
+    throw new Error(`${resp.statusText}`);
+  }
+};
+
+const selectMenuModeTo = (mode, selectedItemType) => {
+  switch (mode) {
+    case "initial":
+      menu.dataset.state = "initial";
+      hideElement(burgerBtn);
+    break;
+
+    case "default":
+      menu.dataset.state = "default";
+      Array.from(menu.querySelectorAll(`[data-state="selected"]`)).forEach(
+        el => (el.dataset.state = "")
+      );
+    break;
+
+    case "selected":
+      menu.dataset.state = "selected";
+      [commentsBtn, drawBtn, shareBtn].find(btn =>
+        btn.classList.contains(selectedItemType)
+      ).dataset.state = "selected";
+      [commentsTools, drawTools, shareTools].find(tools =>
+        tools.classList.contains(`${selectedItemType}-tools`)
+      ).dataset.state = "selected";
+      showElement(burgerBtn);
+    break;
+  }
+
+  const menuSettings = getSessionSettings("menuSettings");
+  if (menuSettings) {
+    menuSettings.mode = mode;
+    menuSettings.selectItemType = selectedItemType;
+    sessionStorage.menuSettings = JSON.stringify(menuSettings);
+  } else {
+    sessionStorage.menuSettings = JSON.stringify({
+      mode: mode,
+      selectItemType: selectedItemType
+    });
+  }
+};
+
+const selectMenuMode = event => {
+  if (burgerBtn === event.target || burgerBtn === event.target.parentElement) {
+    selectMenuModeTo("default");
+  } else if (drawBtn === event.target || drawBtn === event.target.parentElement) {
+    selectMenuModeTo("selected", "draw");
+  } else if (commentsBtn === event.target || commentsBtn === event.target.parentElement) {
+    selectMenuModeTo("selected", "comments");
+  } else if (shareBtn === event.target || shareBtn === event.target.parentElement) {
+    selectMenuModeTo("selected", "share");
+  }
+};
+
+menu.addEventListener("click", selectMenuMode);
+
+const checkSelectionResult = () => {
+  try {
+    const done = document.execCommand("copy");
+    console.log(`Копирование ссылки: ${urlTextarea.value}${done ? " " : " не"}выполнено`);
+  } catch (err) {
+    console.error(`Не удалось скопировать ссылку. Ошибка: ${err}`);
+  }
+};
+
+const clearSelection = () => {
+  try {
+    window.getSelection().removeAllRanges();
+  } catch (err) {
+    document.selection.empty();
+    console.error(err);
+  }
+};
+
+const copyURL = event => {
+  if (event.target.classList.contains("menu_copy")) {
+    urlTextarea.select();
+    checkSelectionResult();
+    clearSelection();
+  }
+};
+
+shareTools.addEventListener("click", copyURL);
+
+let isLinkedFromShare = false;
+
+const postError = (header, message) => {
+  errorHeader.textContent = header;
+  errorText.textContent = message;
+  showElement(errorMsg);
+};
+
+const showImage = imgData => {
+  image.dataset.status = "load";
+  image.src = imgData.url;
+  saveImageSettings(imgData);
+  window.history.pushState({ path: urlTextarea.value }, "", urlTextarea.value);
+  
+  while (picture.hasChildNodes() && picture.lastElementChild.classList.contains("comments__form")) {
+    picture.removeChild(picture.lastElementChild);
+  }
+  initWSSConnection(imgData.id);
+
+  image.addEventListener("load", () => {
+    hideElement(preloader);
+
+    const menuSettings = getSessionSettings("menuSettings");
+    delete menuSettings.displayComments;
+    sessionStorage.menuSettings = JSON.stringify(menuSettings);
+    sessionStorage.wssReload ? delete sessionStorage.wssReload : "";
+
+    selectMenuModeTo("selected", isLinkedFromShare ? "comments" : "share");
+    commentsOn.checked = true;
+    isLinkedFromShare = false;
+  });
+};
+
+const loadImage = ({ id }) => {
+  fetch(`https:${apiURL}/${id}`)
+  .then(checkResponseStatus)
+  .then(showImage)
+  .catch(err => postError(errorHeader.textContent, err.message));
+};
+
+const postImage = (path, file) => {
+  const formData = new FormData();
+  const name = file.name.replace(/\.\w*$/, "");
+
+  formData.append("title", name);
+  formData.append("image", file);
+
+  showElement(preloader);
+  fetch(path, {
+    body: formData,
+    method: "POST"
+  })
+  .then(checkResponseStatus)
+  .then(showImage)
+  .catch(err => postError(errorHeader.textContent, err.message));
+};
+
+const uploadNewByInput = event => {
+  if (errorMsg.style.display !== "none") {
+    hideElement(errorMsg);
+  }
+
+  if (newImgBtn === event.target || newImgBtn === event.target.parentElement) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg, image/png";
+
+    input.addEventListener("change", event => postImage(`https:${apiURL}`, event.currentTarget.files[0]));
+    input.dispatchEvent(new MouseEvent(event.type, event));
+  }
+};
+
+const uploadNewByDrop = event => {
+  event.preventDefault();
+  if (errorMsg.style.display !== "none") {
+    hideElement(errorMsg);
+  }
+
+  if (event.target === event.currentTarget || event.target === canvas || event.target === errorMsg || event.target.parentElement === errorMsg) {
+    if (image.dataset.status !== "load") {
+      const file = event.dataTransfer.files[0];
+
+      if (/^image\/[(jpeg) | (png)]/.test(file.type)) {
+        postImage(`https:${apiURL}`, file);
+      } else {
+        postError("Ошибка", "Неверный формат файла. Пожалуйста, выберите изображение в формате .jpg или .png.");
+      }
+    } else {
+      postError("Ошибка", `Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом "Загрузить новое" в меню`);
+    }
+  }
+};
+
+menu.addEventListener("click", uploadNewByInput);
+app.addEventListener("dragover", event => event.preventDefault());
+app.addEventListener("drop", uploadNewByDrop);
+
+let socket;
+
+const addCommentInDirectory = (comment, directory) => {
+  directory[comment.id] = {
+    left: comment.left,
+    top: comment.top,
+    message: comment.message,
+    timestamp: comment.timestamp
+  };
+};
+
+const updatePic = event => {
+  const wssResponse = JSON.parse(event.data);
+
+  switch (wssResponse.event) {
+    case "pic":
+      if (wssResponse.pic.mask) {
+        canvas.style.background = `url("${wssResponse.pic.mask}")`;
+      } else {
+        canvas.style.background = "";
+      }
+
+      if (wssResponse.pic.comments) {
+        renderComments(wssResponse.pic);
+      }
+    break;
+
+    case "comment":
+      const imageSettings = getSessionSettings("imageSettings");
+      const commentsMarker = app.querySelector(`.comments__marker[data-left="${wssResponse.comment.left}"][data-top="${wssResponse.comment.top}"]`);
+
+      if (imageSettings.comments) {
+        addCommentInDirectory(wssResponse.comment, imageSettings.comments);
+      } else {
+        imageSettings.comments = {};
+        addCommentInDirectory(wssResponse.comment, imageSettings.comments);
+      }
+
+      if (commentsMarker) {
+        loadComment(imageSettings, wssResponse.comment.left, wssResponse.comment.top);
+      } else {
+        picture.appendChild(crtNewCommentsForm(wssResponse.comment.left, wssResponse.comment.top));
+        loadComment(imageSettings, wssResponse.comment.left, wssResponse.comment.top);
+      }
+    break;
+
+    case "mask":
+      canvas.style.background = `url("${wssResponse.url}")`;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (!sessionStorage.wssReload) {
+        console.log("Для корректной склейки текущего изображения требуется перезапуск вебсокет соединения");
+        sessionStorage.wssReload = 1;
+        socket.close(1000);
+        initWSSConnection(getSessionSettings("imageSettings").id);
+      }
+    break;
+  }
+};
+
+const initWSSConnection = id => {
+  socket = new WebSocket(`wss:${apiURL}/${id}`);
+
+  socket.addEventListener("message", updatePic);
+  socket.addEventListener("open", event => console.log("Вебсокет соединение установлено"));
+  socket.addEventListener("close", event => console.log(event.wasClean ? `"Чистое закрытие" соединения` : `Обрыв связи. Причина: ${event.reason}`));
+  window.addEventListener("beforeunload", () => socket.close(1000, "Сессия успешно завершена"));
+  socket.addEventListener("error", error => console.error(`Ошибка: ${error.message}`));
 };
