@@ -9,7 +9,7 @@ const wrap = document.querySelector('.wrap.app'),
     homeUrl = window.location.origin + `/index.html`,
     clientWidth = document.documentElement.clientWidth;
 
-let dragMenu = null, // для перетаскивания меню
+let dragMenu = null, 
     currentColor = "#6ebf44",
     newImageMask,
     newImageMaskHeight,
@@ -19,12 +19,9 @@ let dragMenu = null, // для перетаскивания меню
     serverId,
     canvas,
     ctx,
-    statusFirstSend = true, //Статус первой отправки изображения
-    uploadStatus = false; //Статус загружалось ли ранее изображение для перехода в режим поделиться
+    statusFirstSend = true, 
+    uploadStatus = false;
 
-
-
-/* GET запрос для по ID */
 function loadInformFromId(id) {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', `https://neto-api.herokuapp.com/pic/${id}`);
@@ -32,16 +29,12 @@ function loadInformFromId(id) {
 
     xhr.addEventListener('load', () => {
         let newImage = JSON.parse(xhr.responseText);
-        /* Выбор открывающегося меню - поделиться или комментирование */
         choiceMenu();
-        /* функция добавляет в изображение src */
         loadImage(newImage);
-        /* WSS */
         wss(newImage.id);
     });
 };
 
-/* Выбор открывающегося меню - поделиться или комментирование */
 function choiceMenu() {
     if (uploadStatus) {
         uploadStatus = false;
@@ -53,23 +46,19 @@ function choiceMenu() {
     };
 };
 
-/* Генерация ошибки */
 function showError(string) {
     error.classList.remove('hidden');
     error.querySelector('.error__message').textContent = string;
 };
 
-/* удаление ошибки при нажатии на "бургер" */
 function removeError() {
     error.classList.add('hidden');
 };
 
-/* функция меняет ссылку в "поделиться" */
 function changeUrlNew(id) {
     menu.querySelector('.menu__url').value = window.location.origin + `/index.html?${id}`;
 };
 
-/* функция добавляет в изображение src */
 function loadImage(obj) {
     if (obj.url) {
         sessionStorage.id = obj.id;
@@ -83,7 +72,6 @@ function loadImage(obj) {
     } else return;
 };
 
-/* Создает канвас */
 function createCanvas() {
     const drawArea = document.createElement('canvas');
     drawArea.classList.add('canvas-area');
@@ -131,7 +119,6 @@ function createCanvas() {
     drawArea.addEventListener('mousemove', draw);
 };
 
-/* Создает изображение с маской */
 function createNewImageMask(url) {
     if (!wrap.querySelector('.image-mask')) {
         let newImage = document.createElement('img');
@@ -151,7 +138,6 @@ function createNewImageMask(url) {
     };
 };
 
-/* Открывает webSocket */
 function wss(id) {
     changeUrlNew(id);
     serverId = id;
@@ -186,7 +172,6 @@ function wss(id) {
     });
 };
 
-/* Создание Input для загрузки изображения + Загрузка Drag&Drop + POST запрос для загрузки на сервер */
 function updateFilesInfo(files) {
     if (files[0].type !== "image/png" && files[0].type !== "image/jpeg") {
         showError('Неверный формат файла. Пожалуйста, выберите изображение в формате .jpg или .png.');
@@ -252,7 +237,6 @@ function createNewInput() {
 
 document.addEventListener('DOMContentLoaded', createNewInput);
 
-/* Изменение состояния приложения и меню */
 function reloadStatus(string) {
     menu.querySelector('.burger').style.display = 'none';
     wrap.dataset.state = string;
@@ -270,12 +254,11 @@ function reloadStatus(string) {
     };
 };
 
-/* Drag&Drop изображения */
 function onFilesDrop(event) {
     event.preventDefault();
     const files = Array.from(event.dataTransfer.files);
     if (currentImage.dataset.load === 'load') {
-        showError('Чтобы загрузить новое изображение, пожалуйста, вопсользуйтесь пунктом «Загрузить новое» в меню.');
+        showError('Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом «Загрузить новое» в меню.');
         return;
     };
     updateFilesInfo(files);
@@ -284,7 +267,7 @@ function onFilesDrop(event) {
 wrap.addEventListener('drop', onFilesDrop);
 wrap.addEventListener('dragover', event => event.preventDefault());
 
-/* Проверка наличия ранее загруженного изображения или наличия ID в ссылке*/
+
 function requestImageInfo() {
     const str = window.location.href;
     const regex = /\?(.*)/;
@@ -301,7 +284,6 @@ function requestImageInfo() {
 
 document.addEventListener('DOMContentLoaded', requestImageInfo);
 
-/* Проверка наличия прошлого состояния меню */
 function requestLastMenuPosition() {
     if (localStorage.x && localStorage.y) {
         menu.style.setProperty('--menu-left', `${localStorage.x}px`);
@@ -311,7 +293,6 @@ function requestLastMenuPosition() {
 
 document.addEventListener('DOMContentLoaded', requestLastMenuPosition);
 
-/* Обработчик клика по меню */
 menu.addEventListener('click', event => {
     const burgerMenu = menu.querySelector('.burger'),
         modeMenuAll = menu.querySelectorAll('[data-state]'),
@@ -389,7 +370,6 @@ menu.addEventListener('click', event => {
     checkMenuBody(event.currentTarget, event.currentTarget.getBoundingClientRect().left);
 });
 
-/* Проверка меню на состояние */
 function checkMenuBody(block, x) {
     if (block.offsetHeight > menuSize) {
         x--;
@@ -398,7 +378,6 @@ function checkMenuBody(block, x) {
     } else return;
 };
 
-/* Перетаскивание меню */
 menu.firstElementChild.addEventListener('mousedown', event => {
     dragMenu = event.currentTarget;
 });
@@ -433,7 +412,6 @@ document.addEventListener('mouseup', event => {
     dragMenu = null;
 });
 
-/* Проверка комментариев */
 function upgrateComment(obj) {
     if (wrap.querySelector(`.comments__form[data-comment-id='${obj.left + '&' + obj.top}']`)) {
         const cont = wrap.querySelector(`.comments__form[data-comment-id='${obj.left + '&' + obj.top}']`);
@@ -444,7 +422,6 @@ function upgrateComment(obj) {
     };
 };
 
-/* Обработчик клика по холсту для создания комментария */
 wrap.addEventListener('click', (e) => {
     if (e.target === wrap.querySelector('canvas') && menu.querySelector('.menu__item.mode.comments').dataset.state === 'selected') {
         if (wrap.querySelector('[data-comment-id]')) {
@@ -456,7 +433,6 @@ wrap.addEventListener('click', (e) => {
     };
 });
 
-/* Создание новвой формы комментариев */
 function addNewFormComment(x, y) {
     const form = document.createElement('form');
     form.classList.add('comments__form');
@@ -531,7 +507,6 @@ function addNewFormComment(x, y) {
     wrap.appendChild(form);
 };
 
-/* Создание нового блока комментариев */
 function addNewComment(text, time, cont) {
     const comment = document.createElement('div');
     comment.classList.add('comment');
@@ -550,7 +525,6 @@ function addNewComment(text, time, cont) {
     cont.querySelector('.comments__body').insertBefore(cont.querySelector('.comments__body').appendChild(comment), cont.querySelector('.loader').parentNode);
 };
 
-/* Изменение положения комментариев при изменении размера окна браузера */
 window.addEventListener('resize', (e) => {
     let formComment = wrap.querySelector('.comments__form');
     if (formComment) {
@@ -561,7 +535,6 @@ window.addEventListener('resize', (e) => {
     };
 });
 
-/* Формат даты */
 function formatData(data) {
     if (data < 10) {
         return '0' + data;
