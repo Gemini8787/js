@@ -208,31 +208,17 @@ function removeForm() {
 	Array.from(formComment).forEach(item => {item.remove()})
 }
 
-function setReview(id) {
-	const xhrGetInfo = new XMLHttpRequest();
-	xhrGetInfo.open(
-		'GET',
-		`${urlApi}/pic/${id}`,
-		false
-	);
-	xhrGetInfo.send();
+// коррекция
+currentImage.src = ''; // убираем фон
 
-	dataGetParse = JSON.parse(xhrGetInfo.responseText);
-	host = `${window.location.origin}${window.location.pathname}?id=${dataGetParse.id}`;
+getGlobalVar('menu').dataset.state = 'initial'; // скрываем пункты меню для режима "Публикации"
+wrapApp.dataset.state = '';
+hideElement(getGlobalVar('burger')); // скрываем пункт меню Burger
+wrapApp.removeChild(document.querySelector('.comments__form')); // убираем комментарии в режиме "Публикации"
 
-	wss();	
-	setcurrentImage(dataGetParse);
-	menuBurger.style.cssText = ``;
-	showMenu();
-
-	currentImage.addEventListener('load', () => {
-		hide(loader);
-		createWrapforCanvasComment();
-		createCanvas();
-	});
-
-	updateCommentForm(dataGetParse.comments);
-}
+getGlobalVar('menu').querySelector('.new').addEventListener('click', uploadFileFromInput); //открываем окно выбора файла для загрузки
+wrapApp.addEventListener('drop', onFilesDrop); //загрузка файла drag&drop
+wrapApp.addEventListener('dragover', event => event.preventDefault()); 
 
 menuBurger.addEventListener('click', showMenu);
 
@@ -254,6 +240,8 @@ function showMenu() {
 		})
 	})
 }
+
+// коррекция
 
 function showMenuComments() {
 	menu.dataset.state = 'default';
